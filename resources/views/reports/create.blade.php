@@ -262,68 +262,193 @@
                             animation: google.maps.Animation.BOUNCE
                         });
                         
-                        // Get address from coordinates and AUTO-FILL
-                        // Method 1: Try Google Maps Geocoding API
-                        geocoder.geocode({ location: userLocation }, (results, status) => {
+                        // Try multiple geocoding services for best address quality
+                        async function getDetailedAddress(lat, lng) {
                             const lokasiField = document.getElementById('lokasi');
                             
-                            if (status === "OK" && results[0]) {
-                                const address = results[0].formatted_address;
-                                document.getElementById('displayAddress').textContent = address;
-                                document.getElementById('alamat_lengkap').value = address;
-                                
-                                // AUTO-FILL: Isi field lokasi dengan alamat dari GPS
-                                lokasiField.value = address;
-                                
-                                // Add visual feedback
-                                lokasiField.classList.add('auto-filled');
-                                document.getElementById('autoFilledBadge').style.display = 'inline';
-                                document.getElementById('manualHint').style.display = 'none';
-                                document.getElementById('autoHint').style.display = 'inline';
-                                
-                                // Remove highlight after 3 seconds
-                                setTimeout(() => {
-                                    lokasiField.classList.remove('auto-filled');
-                                }, 3000);
-                                
-                            } else {
-                                // Fallback: Use OpenStreetMap Nominatim (Free alternative)
-                                console.log('Google Geocoding failed, trying OpenStreetMap...');
-                                fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`)
-                                    .then(response => response.json())
-                                    .then(data => {
-                                        if (data && data.display_name) {
-                                            const address = data.display_name;
-                                            document.getElementById('displayAddress').textContent = address;
-                                            document.getElementById('alamat_lengkap').value = address;
-                                            
-                                            // AUTO-FILL
-                                            lokasiField.value = address;
-                                            lokasiField.classList.add('auto-filled');
-                                            document.getElementById('autoFilledBadge').style.display = 'inline';
-                                            document.getElementById('manualHint').style.display = 'none';
-                                            document.getElementById('autoHint').style.display = 'inline';
-                                            
-                                            setTimeout(() => {
-                                                lokasiField.classList.remove('auto-filled');
-                                            }, 3000);
+                            // Method 1: Google Maps Geocoding (Best for Indonesia)
+                            try {
+                                const results = await new Promise((resolve, reject) => {
+                                    geocoder.geocode({ location: userLocation }, (results, status) => {
+                                        if (status === "OK" && results[0]) {
+                                            resolve(results);
                                         } else {
-                                            throw new Error('No address found');
+                                            reject(new Error('Google Geocoding failed'));
                                         }
-                                    })
-                                    .catch(error => {
-                                        console.error('Geocoding error:', error);
-                                        document.getElementById('displayAddress').textContent = 
-                                            `Koordinat: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                                        
-                                        // Fill with coordinates as fallback
-                                        const coordText = `Lat: ${lat.toFixed(6)}, Lng: ${lng.toFixed(6)}`;
-                                        lokasiField.placeholder = 'Alamat tidak dapat dimuat otomatis, silakan isi manual';
-                                        
-                                        alert('Alamat tidak dapat dimuat otomatis. Koordinat GPS sudah tersimpan. Silakan isi alamat secara manual.');
                                     });
+                                });
+                                
+                                if (results && results.length > 0) {
+                                    // Parse Google's address components for detailed info
+                                    const addressComponents = results[0].address_components;
+                                    let detailedAddress = '';
+                                    let street = '';
+                                    let streetNumber = '';
+                                    let sublocality = '';
+                                    let locality = '';
+                                    let adminArea = '';
+                                    let province = '';
+                                    let postalCode = '';
+                                    
+                                    // Extract components
+                                    addressComponents.forEach(component => {
+                                        const types = component.types;
+                                        
+                                        if (types.includes('street_number')) {
+                                            streetNumber = component.long_name;
+                                        }
+                                        if (types.includes('route')) {
+                                            street = component.long_name;
+                                        }
+                                        if (types.includes('sublocality_level_4') || types.includes('neighbourhood')) {
+                                            if (!sublocality) sublocality = component.long_name;
+                                        }
+                                        if (types.includes('sublocality_level_3')) {
+                                            if (!sublocality) sublocality = component.long_name;
+                                        }
+                                        if (types.includes('sublocality_level_2')) {
+                                            if (!locality) locality = component.long_name;
+                                        }
+                                        if (types.includes('sublocality_level_1') || types.includes('administrative_area_level_4')) {
+                                            if (!locality) locality = component.long_name;
+                                        }
+                                        if (types.includes('administrative_area_level_3')) {
+                                            if (!adminArea) adminArea = component.long_name;
+                                        }
+                                        if (types.includes('administrative_area_level_2')) {
+                                            if (!adminArea) adminArea = component.long_name;
+                                        }
+                                        if (types.includes('administrative_area_level_1')) {
+                                            province = component.long_name;
+                                        }
+                                        if (types.includes('postal_code')) {
+                                            postalCode = component.long_name;
+                                        }
+                                    });
+                                    
+                                    // Build detailed address
+                                    if (street) {
+                                        detailedAddress = street;
+                                        if (streetNumber) {
+                                            detailedAddress += ' No. ' + streetNumber;
+                                        }
+                                    }
+                                    
+                                    if (sublocality) {
+                                        detailedAddress += (detailedAddress ? ', ' : '') + sublocality;
+                                    }
+                                    
+                                    if (locality) {
+                                        detailedAddress += (detailedAddress ? ', ' : '') + locality;
+                                    }
+                                    
+                                    if (adminArea) {
+                                        detailedAddress += (detailedAddress ? ', ' : '') + adminArea;
+                                    }
+                                    
+                                    if (province) {
+                                        detailedAddress += (detailedAddress ? ', ' : '') + province;
+                                    }
+                                    
+                                    if (postalCode) {
+                                        detailedAddress += ' ' + postalCode;
+                                    }
+                                    
+                                    // If custom build is too short, use formatted address
+                                    const finalAddress = detailedAddress.length > 10 ? detailedAddress : results[0].formatted_address;
+                                    
+                                    // Update UI
+                                    document.getElementById('displayAddress').textContent = finalAddress;
+                                    document.getElementById('alamat_lengkap').value = finalAddress;
+                                    lokasiField.value = finalAddress;
+                                    
+                                    // Visual feedback
+                                    lokasiField.classList.add('auto-filled');
+                                    document.getElementById('autoFilledBadge').style.display = 'inline';
+                                    document.getElementById('manualHint').style.display = 'none';
+                                    document.getElementById('autoHint').style.display = 'inline';
+                                    
+                                    setTimeout(() => lokasiField.classList.remove('auto-filled'), 3000);
+                                    
+                                    console.log('Google Geocoding Success:', finalAddress);
+                                    return;
+                                }
+                            } catch (error) {
+                                console.log('Google Geocoding failed, trying OpenStreetMap...', error);
                             }
-                        });
+                            
+                            // Method 2: OpenStreetMap Nominatim (Fallback)
+                            try {
+                                const response = await fetch(
+                                    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
+                                    {
+                                        headers: {
+                                            'Accept-Language': 'id',
+                                            'User-Agent': 'LaporankuSidoarjo/1.0'
+                                        }
+                                    }
+                                );
+                                
+                                const data = await response.json();
+                                
+                                if (data && data.address) {
+                                    const addr = data.address;
+                                    let detailedAddress = '';
+                                    
+                                    // Build address from components
+                                    const parts = [];
+                                    
+                                    if (addr.road || addr.street || addr.footway) {
+                                        let roadName = addr.road || addr.street || addr.footway;
+                                        if (addr.house_number) {
+                                            roadName += ' No. ' + addr.house_number;
+                                        }
+                                        parts.push(roadName);
+                                    }
+                                    
+                                    if (addr.neighbourhood) parts.push(addr.neighbourhood);
+                                    if (addr.hamlet) parts.push(addr.hamlet);
+                                    if (addr.suburb) parts.push(addr.suburb);
+                                    if (addr.village) parts.push('Desa ' + addr.village);
+                                    if (addr.subdistrict) parts.push('Kec. ' + addr.subdistrict);
+                                    if (addr.municipality) parts.push(addr.municipality);
+                                    if (addr.city || addr.county) parts.push(addr.city || addr.county);
+                                    if (addr.state) parts.push(addr.state);
+                                    if (addr.postcode) parts.push(addr.postcode);
+                                    
+                                    detailedAddress = parts.join(', ');
+                                    
+                                    const finalAddress = detailedAddress.length > 10 ? detailedAddress : data.display_name;
+                                    
+                                    // Update UI
+                                    document.getElementById('displayAddress').textContent = finalAddress;
+                                    document.getElementById('alamat_lengkap').value = finalAddress;
+                                    lokasiField.value = finalAddress;
+                                    
+                                    // Visual feedback
+                                    lokasiField.classList.add('auto-filled');
+                                    document.getElementById('autoFilledBadge').style.display = 'inline';
+                                    document.getElementById('manualHint').style.display = 'none';
+                                    document.getElementById('autoHint').style.display = 'inline';
+                                    
+                                    setTimeout(() => lokasiField.classList.remove('auto-filled'), 3000);
+                                    
+                                    console.log('OpenStreetMap Success:', finalAddress);
+                                    return;
+                                }
+                            } catch (error) {
+                                console.error('OpenStreetMap failed:', error);
+                            }
+                            
+                            // Method 3: Last resort - show coordinates
+                            const coordText = `Koordinat: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                            document.getElementById('displayAddress').textContent = coordText;
+                            lokasiField.placeholder = 'Silakan ketik nama jalan dan alamat lengkap secara manual';
+                            alert('Nama jalan tidak dapat dideteksi otomatis. Koordinat GPS sudah tersimpan. Silakan ketik alamat lengkap secara manual.');
+                        }
+                        
+                        // Call the function
+                        getDetailedAddress(lat, lng);
                         
                         // Reset button
                         btn.disabled = false;
